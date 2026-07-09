@@ -81,11 +81,18 @@ public class BackendMessageHandler implements PluginMessageListener {
     // --- CONNECT_RESPONSE: notify player on failure ---
     private void handleConnectResponse(ByteArrayDataInput in) {
         ChannelMessageUtil.ConnectResponseData resp = ChannelMessageUtil.readConnectResponse(in);
-        if (!resp.success()) {
-            // 🟡 Re-fetch player after potential async gap
-            Player p = Bukkit.getPlayer(resp.playerUuid());
-            if (p != null) {
-                messageManager.send(p, MessageKeys.ERROR_TELEPORT_FAILED);
+        UUID travelerUuid = resp.playerUuid();
+        boolean success = resp.success();
+        if (!success) {
+            Player player = Bukkit.getPlayer(travelerUuid);
+            if (player != null) {
+                messageManager.send(player, MessageKeys.ERROR_TELEPORT_FAILED);
+            }
+            // Clear transferring state and forcefully remove the stuck request
+            // since the transfer failed and they will never quit the server.
+            if (requestManager.isTransferring(travelerUuid)) {
+                requestManager.clearTransferring(travelerUuid);
+                requestManager.cleanupPlayer(travelerUuid); // aggressive but safe
             }
         }
     }
@@ -220,7 +227,16 @@ public class BackendMessageHandler implements PluginMessageListener {
         // Determine target server from fresh roster data
         String destServer = rosterCache.getPlayerServer(destPlayerUuid);
         if (destServer == null) {
-            // Destination player went offline
+            // Destination player not found in roster cache.
+            // This is NOT a confirmed disconnect (that comes via REQUEST_CANCEL relay) —
+            // it means the roster cache doesn't have this player, which could indicate:
+            // 1. Player actually disconnected between accept and finalize
+            // 2. Roster cache was overwritten by a wrong-group update (bug)
+            // 3. Roster hasn't synced yet
+            // Log distinctly so this case is distinguishable from relay-confirmed disconnects.
+            plugin.getLogger().warning("finalizeAccept: roster cache miss for destination player "
+                    + destPlayerUuid + " (name: " + request.getTargetName()
+                    + "). This may indicate a stale roster cache, not a confirmed disconnect.");
             Player traveler = Bukkit.getPlayer(travelerUuid);
             if (traveler != null) {
                 messageManager.send(traveler, MessageKeys.ERROR_TARGET_DISCONNECTED,
@@ -248,6 +264,10 @@ public class BackendMessageHandler implements PluginMessageListener {
                     System.currentTimeMillis() + (long) config.getPendingTeleportTtl() * 1000
             );
             messageSender.sendPendingTeleport(pending);
+
+            // Mark as transferring to protect against cleanup logic (and memory leaks)
+            requestManager.markTransferring(travelerUuid, request.getRequestId());
+
             messageSender.sendConnectRequest(travelerUuid, destServer);
 
             Player traveler = Bukkit.getPlayer(travelerUuid);

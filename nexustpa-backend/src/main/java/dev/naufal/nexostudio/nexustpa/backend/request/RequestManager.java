@@ -175,8 +175,14 @@ public class RequestManager {
                 expired.add(req);
             }
         }
-        // Clean up non-pending outgoing
-        outgoingRequests.values().removeIf(r -> r.getState() != RequestState.PENDING);
+        // Clean up only terminal states — ACCEPTED requests may be mid-teleport
+        // and must remain until the transfer completes or times out naturally
+        outgoingRequests.values().removeIf(r -> {
+            RequestState state = r.getState();
+            return state == RequestState.DENIED
+                    || state == RequestState.CANCELLED
+                    || state == RequestState.EXPIRED;
+        });
         return expired;
     }
 
@@ -202,6 +208,57 @@ public class RequestManager {
         return expired;
     }
 
+    // Keyed by traveler UUID — tracks players who are currently hopping servers via proxy
+    // Value is the request ID they are travelling for. Used to clean up requests on success/failure/TTL.
+    private final ConcurrentHashMap<UUID, TransferEntry> transferringPlayers = new ConcurrentHashMap<>();
+
+    private record TransferEntry(UUID requestId, long timestamp) {}
+
+    /**
+     * Marks a player as transferring across servers.
+     * Called on authoritative side when CONNECT_REQUEST is sent,
+     * and on mirror side when REQUEST_RESOLVE(ACCEPTED) is sent for TPAHERE.
+     */
+    public void markTransferring(UUID playerUuid, UUID requestId) {
+        transferringPlayers.put(playerUuid, new TransferEntry(requestId, System.currentTimeMillis()));
+    }
+
+    public void clearTransferring(UUID playerUuid) {
+        transferringPlayers.remove(playerUuid);
+    }
+
+    public boolean isTransferring(UUID playerUuid) {
+        return transferringPlayers.containsKey(playerUuid);
+    }
+
+    /**
+     * Cleans up transfers that timed out (e.g. CONNECT_RESPONSE lost or proxy crashed).
+     * Called by ExpiryTask.
+     */
+    public void cleanupStaleTransfers(int ttlSeconds, java.util.logging.Logger logger) {
+        long now = System.currentTimeMillis();
+        long ttlMillis = ttlSeconds * 1000L;
+        transferringPlayers.entrySet().removeIf(entry -> {
+            boolean stale = (now - entry.getValue().timestamp()) > ttlMillis;
+            if (stale) {
+                logger.warning("Transfer TTL expired for player " + entry.getKey() + ", cleaning up request.");
+                // Remove the stuck ACCEPTED request so it doesn't leak
+                removeByRequestId(entry.getValue().requestId());
+            }
+            return stale;
+        });
+    }
+
+    /**
+     * Helper to aggressively remove a request from all maps (used on transfer success/fail/timeout).
+     */
+    public synchronized void removeByRequestId(UUID requestId) {
+        outgoingRequests.values().removeIf(r -> r.getRequestId().equals(requestId));
+        for (List<TpaRequest> list : incomingRequests.values()) {
+            list.removeIf(r -> r.getRequestId().equals(requestId));
+        }
+    }
+
     /**
      * Result of cleaning up a disconnecting player's requests.
      */
@@ -218,6 +275,19 @@ public class RequestManager {
     public synchronized CleanupResult cleanupPlayer(UUID playerUuid) {
         List<TpaRequest> cancelledOutgoing = new ArrayList<>();
         List<TpaRequest> orphanedMirrors = new ArrayList<>();
+
+        boolean transferring = isTransferring(playerUuid);
+        if (transferring) {
+            // Player is quitting because they are transferring servers.
+            // This is a SUCCESSFUL transfer. We must remove their requests so they don't leak,
+            // but we DO NOT cancel them (no relays sent).
+            TransferEntry entry = transferringPlayers.remove(playerUuid);
+            if (entry != null) {
+                removeByRequestId(entry.requestId());
+            }
+            // If they had other unrelated pending requests, we should still cancel those.
+            // But the specific transferring request is already removed by ID above.
+        }
 
         // Cancel outgoing request (this player was requester)
         TpaRequest outgoing = outgoingRequests.remove(playerUuid);
@@ -239,7 +309,6 @@ public class RequestManager {
         }
 
         // Also check if this player was a requester in other targets' incoming lists
-        // (same-server scenario where request is in both outgoing and incoming)
         for (List<TpaRequest> list : incomingRequests.values()) {
             list.removeIf(r -> r.getRequesterUuid().equals(playerUuid)
                     && r.tryTransition(RequestState.PENDING, RequestState.CANCELLED));

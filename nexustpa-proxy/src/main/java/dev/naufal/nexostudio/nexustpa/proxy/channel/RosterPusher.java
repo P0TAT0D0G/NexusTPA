@@ -3,12 +3,13 @@ package dev.naufal.nexostudio.nexustpa.proxy.channel;
 import com.google.common.io.ByteArrayDataOutput;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.messages.ChannelIdentifier;
-import com.velocitypowered.api.proxy.server.RegisteredServer;
 import dev.naufal.nexostudio.nexustpa.common.channel.ChannelConstants;
 import dev.naufal.nexostudio.nexustpa.common.channel.ChannelMessageUtil;
+import dev.naufal.nexostudio.nexustpa.proxy.group.GroupRegistry;
 import dev.naufal.nexostudio.nexustpa.proxy.index.PlayerIndex;
 import org.slf4j.Logger;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -20,18 +21,26 @@ import java.util.UUID;
  * <p>Verified: RegisteredServer.sendPluginMessage(ChannelIdentifier, byte[])
  * is the correct API for sending plugin messages to backend servers in Velocity.
  * Both RegisteredServer and Player implement ChannelMessageSink.
+ *
+ * <p><b>CRITICAL:</b> Must only send to servers in the target group.
+ * Sending to all servers causes cross-group roster overwrites — the backend's
+ * {@code RosterCache.updateRoster()} does {@code clear()} then repopulate,
+ * so receiving a roster for a wrong group erases the correct one.
  */
 public class RosterPusher {
 
     private final ProxyServer server;
     private final PlayerIndex playerIndex;
+    private final GroupRegistry groupRegistry;
     private final ChannelIdentifier channel;
     private final Logger logger;
 
     public RosterPusher(ProxyServer server, PlayerIndex playerIndex,
+                        GroupRegistry groupRegistry,
                         ChannelIdentifier channel, Logger logger) {
         this.server = server;
         this.playerIndex = playerIndex;
+        this.groupRegistry = groupRegistry;
         this.channel = channel;
         this.logger = logger;
     }
@@ -43,6 +52,10 @@ public class RosterPusher {
      * <p>Plugin messaging requires at least one player on the target server.
      * Servers with 0 players will receive a fresh roster on the next player join
      * (triggered by ServerConnectedEvent).
+     *
+     * <p>Only sends to servers that are members of {@code groupName} per
+     * the GroupRegistry. For isolated servers (not in any configured group),
+     * the group name IS the server name — handled by the fallback.
      */
     public void pushRosterToGroup(String groupName) {
         Map<UUID, ChannelMessageUtil.RosterEntry> roster =
@@ -54,27 +67,20 @@ public class RosterPusher {
         ChannelMessageUtil.writeRosterUpdate(out, groupName, roster);
         byte[] data = out.toByteArray();
 
-        // Send to all servers in the group
-        // For servers not in the group registry (isolated), we still need to
-        // send if the group name IS the server name (isolated single-member group)
-        for (RegisteredServer regServer : server.getAllServers()) {
-            String serverName = regServer.getServerInfo().getName();
-            // Only send to servers in this group
-            if (!playerIndex.getGroupRoster(groupName).isEmpty() ||
-                    groupName.equals(serverName)) {
-                // Check if server has players (plugin messaging requirement)
-                if (!regServer.getPlayersConnected().isEmpty()) {
-                    // Only send to servers that are actually in this group
-                    // by checking their group membership
-                    String serverGroup = server.getAllServers().stream()
-                            .filter(s -> s.getServerInfo().getName().equals(serverName))
-                            .findFirst()
-                            .map(s -> groupName) // We need GroupRegistry here
-                            .orElse(serverName);
+        // Determine target servers — ONLY servers in this group
+        List<String> groupServers = groupRegistry.getServersInGroup(groupName);
+        if (groupServers.isEmpty()) {
+            // Isolated server: group name IS the server name (PRD §4 convention)
+            groupServers = List.of(groupName);
+        }
 
+        for (String serverName : groupServers) {
+            server.getServer(serverName).ifPresent(regServer -> {
+                // Plugin messaging requires at least one player on the target
+                if (!regServer.getPlayersConnected().isEmpty()) {
                     regServer.sendPluginMessage(channel, data);
                 }
-            }
+            });
         }
     }
 

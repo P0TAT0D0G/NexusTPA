@@ -26,15 +26,27 @@ public class RosterCache {
     private final ConcurrentHashMap<UUID, CachedEntry> roster = new ConcurrentHashMap<>();
     private volatile String currentGroup = "";
     private volatile boolean synced = false;
+    private final java.util.logging.Logger logger;
 
-    public RosterCache(BackendConfig config) {
+    public RosterCache(BackendConfig config, java.util.logging.Logger logger) {
         this.config = config;
+        this.logger = logger;
     }
 
     /**
      * Replaces the entire roster with a fresh push from the proxy.
+     * Always accepts the update — backend cannot independently verify group membership
+     * (proxy is the source of truth for group assignments).
+     *
+     * <p>Logs WARNING if group name changes (could indicate proxy config reload
+     * or a RosterPusher bug). See AGENTS.md §5.2.
      */
     public void updateRoster(String groupName, Map<UUID, ChannelMessageUtil.RosterEntry> players) {
+        if (!currentGroup.isEmpty() && !currentGroup.equals(groupName)) {
+            logger.warning("Roster group changed: '" + currentGroup + "' → '" + groupName
+                    + "'. If this was not intentional (proxy config reload), "
+                    + "check RosterPusher for cross-group leakage.");
+        }
         roster.clear();
         for (Map.Entry<UUID, ChannelMessageUtil.RosterEntry> entry : players.entrySet()) {
             roster.put(entry.getKey(),

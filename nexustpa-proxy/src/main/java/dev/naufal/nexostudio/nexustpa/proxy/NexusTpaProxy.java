@@ -69,7 +69,7 @@ public class NexusTpaProxy {
         server.getChannelRegistrar().register(CHANNEL);
 
         // Create handlers
-        rosterPusher = new RosterPusher(server, playerIndex, CHANNEL, logger);
+        rosterPusher = new RosterPusher(server, playerIndex, groupRegistry, CHANNEL, logger);
         messageHandler = new ProxyMessageHandler(server, playerIndex, rosterPusher,
                 CHANNEL, logger);
 

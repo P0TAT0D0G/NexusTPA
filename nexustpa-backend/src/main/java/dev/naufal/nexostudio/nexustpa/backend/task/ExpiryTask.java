@@ -80,5 +80,8 @@ public class ExpiryTask extends BukkitRunnable {
 
         // Cleanup expired pending teleports
         pendingTeleportManager.cleanupExpired();
+
+        // Cleanup stale transfers (failed CONNECT_RESPONSE or network partition)
+        requestManager.cleanupStaleTransfers(config.getPendingTeleportTtl() + 15, plugin.getLogger());
     }
 }

@@ -56,7 +56,7 @@ public class NexusTpaBackend extends JavaPlugin {
         toggleRepository = new ToggleRepository(databaseManager);
 
         // Managers
-        rosterCache = new RosterCache(backendConfig);
+        rosterCache = new RosterCache(backendConfig, getLogger());
         requestManager = new RequestManager();
         pendingTeleportManager = new PendingTeleportManager();
 

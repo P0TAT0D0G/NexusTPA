@@ -110,6 +110,9 @@ public class TpAcceptCommand implements CommandExecutor, TabCompleter {
         boolean cooldownBypass = false;
         if (request.getType() == RequestType.TPAHERE) {
             cooldownBypass = target.hasPermission("nexustpa.cooldown.bypass");
+            // For cross-server TPAHERE, the target (traveler) is on this mirror server.
+            // Mark them as transferring so cleanupPlayer knows this quit is a successful transfer.
+            requestManager.markTransferring(target.getUniqueId(), request.getRequestId());
         }
 
         messageSender.sendRequestResolve(request.getRequestId(),
