@@ -1,0 +1,16 @@
+# NexusTPA Backend Configuration
+# server-name MUST match this server's name as registered in velocity.toml
+server-name: ""
+
+request-timeout: 60
+cooldown-seconds: 5
+pending-teleport-ttl: 15
+
+storage:
+  mysql:
+    host: localhost
+    port: 3306
+    database: nexustpa
+    username: root
+    password: ""
+    pool-size: 10

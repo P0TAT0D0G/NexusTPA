@@ -1,0 +1,44 @@
+prefix: "<dark_gray>[<gradient:#4FC3F7:#29B6F6>NexusTPA</gradient>]</dark_gray> "
+
+tpa:
+  sent: "<green>Permintaan teleport dikirim ke <aqua><player></aqua>.</green>"
+  received: "<green><aqua><player></aqua> ingin teleport ke kamu. Ketik <click:run_command:'/tpaccept <player>'><hover:show_text:'Klik untuk menerima'><gold>/tpaccept</gold></hover></click> atau <click:run_command:'/tpdeny <player>'><hover:show_text:'Klik untuk menolak'><red>/tpdeny</red></hover></click>.</green>"
+  accepted: "<green>Kamu menerima permintaan teleport dari <aqua><player></aqua>.</green>"
+  accepted-sender: "<green><aqua><player></aqua> menerima permintaan teleportmu.</green>"
+  denied: "<red>Kamu menolak permintaan teleport dari <aqua><player></aqua>.</red>"
+  denied-sender: "<red><aqua><player></aqua> menolak permintaan teleportmu.</red>"
+  cancelled: "<yellow>Permintaan teleport dibatalkan.</yellow>"
+  cancelled-target: "<yellow><aqua><player></aqua> membatalkan permintaan teleportnya.</yellow>"
+  cancelled-new: "<yellow>Permintaan teleport sebelumnya dibatalkan karena permintaan baru.</yellow>"
+  expired: "<red>Permintaan teleport ke <aqua><player></aqua> telah kedaluwarsa.</red>"
+  expired-target: "<red>Permintaan teleport dari <aqua><player></aqua> telah kedaluwarsa.</red>"
+
+tpa-here:
+  sent: "<green>Permintaan teleport-sini dikirim ke <aqua><player></aqua>.</green>"
+  received: "<green><aqua><player></aqua> ingin kamu teleport ke dia. Ketik <click:run_command:'/tpaccept <player>'><hover:show_text:'Klik untuk menerima'><gold>/tpaccept</gold></hover></click> atau <click:run_command:'/tpdeny <player>'><hover:show_text:'Klik untuk menolak'><red>/tpdeny</red></hover></click>.</green>"
+
+toggle:
+  on: "<green>Permintaan teleport diaktifkan.</green>"
+  off: "<red>Permintaan teleport dinonaktifkan.</red>"
+
+error:
+  player-not-found: "<red>Pemain tidak ditemukan.</red>"
+  self-request: "<red>Kamu tidak bisa mengirim permintaan teleport ke dirimu sendiri.</red>"
+  cooldown-active: "<red>Kamu harus menunggu <aqua><seconds></aqua> detik sebelum teleport lagi.</red>"
+  cooldown-cancel: "<red>Teleport dibatalkan karena <aqua><player></aqua> masih dalam cooldown.</red>"
+  toggle-off: "<red>Pemain tersebut tidak menerima permintaan teleport.</red>"
+  no-pending: "<red>Tidak ada permintaan teleport yang menunggu.</red>"
+  multiple-pending: "<yellow>Kamu memiliki beberapa permintaan. Gunakan <aqua>/tpaccept <player></aqua> untuk memilih.</yellow>"
+  already-pending: "<red>Kamu sudah memiliki permintaan teleport yang aktif.</red>"
+  no-permission: "<red>Kamu tidak memiliki izin untuk melakukan ini.</red>"
+  network-not-ready: "<red>Jaringan belum tersinkronisasi. Coba lagi sebentar.</red>"
+  teleport-failed: "<red>Teleport gagal. Coba lagi.</red>"
+  request-invalid: "<red>Permintaan teleport sudah tidak berlaku.</red>"
+  target-disconnected: "<red><aqua><player></aqua> telah terputus. Permintaan teleport dibatalkan.</red>"
+
+teleport:
+  teleporting: "<green>Teleport ke <aqua><player></aqua>...</green>"
+  cancelled-disconnect: "<red>Teleport dibatalkan karena pemain terputus.</red>"
+
+admin:
+  config-reloaded: "<green>Konfigurasi NexusTPA dimuat ulang.</green>"

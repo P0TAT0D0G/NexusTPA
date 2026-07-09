@@ -1,0 +1,37 @@
+# Maven / Build
+target/
+**/target/
+*.jar
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.nextVal
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# IDEs and Editors
+.idea/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+.factorypath
+.vscode/
+
+# OS/System
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Server credentials and PRD (User requested)
+server-api-credentials.txt
+PRD.md
+
+# AI / Agent related (User requested)
+.agents/
+.gemini/
+skills-lock.json

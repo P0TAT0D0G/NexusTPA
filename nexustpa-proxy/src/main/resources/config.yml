@@ -1,0 +1,13 @@
+# NexusTPA Proxy Configuration
+# Server names MUST match exactly what's registered in velocity.toml
+groups:
+  terra:
+    servers:
+      - "Terra-Spawn"
+      - "Terra-Realms"
+  hub:
+    servers:
+      - "Hub"
+  rpg:
+    servers:
+      - "RPG-Realm"

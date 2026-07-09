@@ -1,0 +1,41 @@
+name: NexusTPA
+version: '1.0.0'
+main: dev.naufal.nexostudio.nexustpa.backend.NexusTpaBackend
+api-version: '1.21'
+description: Cross-server TPA plugin for Terra Network
+author: naufal
+commands:
+  tpa:
+    description: Request to teleport to a player
+    aliases: [tpask]
+    permission: nexustpa.use
+  tpahere:
+    description: Request a player to teleport to you
+    permission: nexustpa.use
+  tpaccept:
+    description: Accept a teleport request
+    aliases: [tpyes]
+    permission: nexustpa.use
+  tpdeny:
+    description: Deny a teleport request
+    aliases: [tpno]
+    permission: nexustpa.use
+  tpcancel:
+    description: Cancel your outgoing teleport request
+    permission: nexustpa.use
+  tptoggle:
+    description: Toggle incoming teleport requests
+    permission: nexustpa.toggle
+  tpareload:
+    description: Reload NexusTPA configuration
+    permission: nexustpa.admin.reload
+
+permissions:
+  nexustpa.use:
+    default: true
+  nexustpa.toggle:
+    default: true
+  nexustpa.cooldown.bypass:
+    default: op
+  nexustpa.admin.reload:
+    default: op
