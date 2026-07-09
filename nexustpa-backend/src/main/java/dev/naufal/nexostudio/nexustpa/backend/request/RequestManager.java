@@ -231,11 +231,16 @@ public class RequestManager {
         return transferringPlayers.containsKey(playerUuid);
     }
 
+    public UUID getTransferRequestId(UUID playerUuid) {
+        TransferEntry entry = transferringPlayers.get(playerUuid);
+        return entry != null ? entry.requestId() : null;
+    }
+
     /**
      * Cleans up transfers that timed out (e.g. CONNECT_RESPONSE lost or proxy crashed).
      * Called by ExpiryTask.
      */
-    public void cleanupStaleTransfers(int ttlSeconds, java.util.logging.Logger logger) {
+    public void cleanupStaleTransfers(int ttlSeconds, java.util.logging.Logger logger, dev.naufal.nexostudio.nexustpa.backend.message.MessageManager messageManager) {
         long now = System.currentTimeMillis();
         long ttlMillis = ttlSeconds * 1000L;
         transferringPlayers.entrySet().removeIf(entry -> {
@@ -243,7 +248,16 @@ public class RequestManager {
             if (stale) {
                 logger.warning("Transfer TTL expired for player " + entry.getKey() + ", cleaning up request.");
                 // Remove the stuck ACCEPTED request so it doesn't leak
+                TpaRequest request = getOutgoingByRequestId(entry.getValue().requestId());
+                if (request == null) {
+                    request = getIncomingByRequestId(entry.getKey(), entry.getValue().requestId()); // Mirror fallback
+                }
                 removeByRequestId(entry.getValue().requestId());
+                // Notify the player
+                org.bukkit.entity.Player player = org.bukkit.Bukkit.getPlayer(entry.getKey());
+                if (player != null && messageManager != null) {
+                    messageManager.send(player, dev.naufal.nexostudio.nexustpa.common.message.MessageKeys.ERROR_TELEPORT_FAILED);
+                }
             }
             return stale;
         });

@@ -91,8 +91,11 @@ public class BackendMessageHandler implements PluginMessageListener {
             // Clear transferring state and forcefully remove the stuck request
             // since the transfer failed and they will never quit the server.
             if (requestManager.isTransferring(travelerUuid)) {
+                UUID requestId = requestManager.getTransferRequestId(travelerUuid);
                 requestManager.clearTransferring(travelerUuid);
-                requestManager.cleanupPlayer(travelerUuid); // aggressive but safe
+                if (requestId != null) {
+                    requestManager.removeByRequestId(requestId);
+                }
             }
         }
     }
@@ -224,57 +227,62 @@ public class BackendMessageHandler implements PluginMessageListener {
                     MessageManager.playerPlaceholder(request.getTargetName()));
         }
 
-        // Determine target server from fresh roster data
         String destServer = rosterCache.getPlayerServer(destPlayerUuid);
-        if (destServer == null) {
-            // Destination player not found in roster cache.
-            // This is NOT a confirmed disconnect (that comes via REQUEST_CANCEL relay) —
-            // it means the roster cache doesn't have this player, which could indicate:
-            // 1. Player actually disconnected between accept and finalize
-            // 2. Roster cache was overwritten by a wrong-group update (bug)
-            // 3. Roster hasn't synced yet
-            // Log distinctly so this case is distinguishable from relay-confirmed disconnects.
-            plugin.getLogger().warning("finalizeAccept: roster cache miss for destination player "
-                    + destPlayerUuid + " (name: " + request.getTargetName()
-                    + "). This may indicate a stale roster cache, not a confirmed disconnect.");
-            Player traveler = Bukkit.getPlayer(travelerUuid);
-            if (traveler != null) {
-                messageManager.send(traveler, MessageKeys.ERROR_TARGET_DISCONNECTED,
+        String travelerServer = rosterCache.getPlayerServer(travelerUuid);
+
+        if (destServer == null || travelerServer == null) {
+            plugin.getLogger().warning("finalizeAccept: roster cache miss. destServer=" + destServer + ", travelerServer=" + travelerServer);
+            if (requester != null) {
+                messageManager.send(requester, MessageKeys.ERROR_TARGET_DISCONNECTED,
                         MessageManager.playerPlaceholder(request.getTargetName()));
             }
+            // MUST send cancel relay to mirror so it clears transferring state!
+            messageSender.sendRequestCancel(request.getRequestId(), RequestCancelReason.TARGET_DISCONNECT, request.getTargetUuid());
             return;
         }
 
-        // Same server?
-        boolean sameServer = config.getServerName().equals(destServer);
+        // Are they on the same server right now?
+        boolean sameServer = travelerServer.equals(destServer);
 
         if (sameServer) {
-            // Direct teleport
-            Player traveler = Bukkit.getPlayer(travelerUuid);
-            Player destPlayer = Bukkit.getPlayer(destPlayerUuid);
-            if (traveler != null && destPlayer != null) {
-                traveler.teleport(destPlayer.getLocation());
-                messageManager.send(traveler, MessageKeys.TELEPORT_TELEPORTING,
-                        MessageManager.playerPlaceholder(destPlayer.getName()));
+            if (destServer.equals(config.getServerName())) {
+                // Both are on THIS authoritative server — direct teleport
+                Player traveler = Bukkit.getPlayer(travelerUuid);
+                Player destPlayer = Bukkit.getPlayer(destPlayerUuid);
+                if (traveler != null && destPlayer != null) {
+                    traveler.teleport(destPlayer.getLocation());
+                    messageManager.send(traveler, MessageKeys.TELEPORT_TELEPORTING,
+                            MessageManager.playerPlaceholder(destPlayer.getName()));
+                }
+            } else {
+                // Both are on a DIFFERENT server (e.g. requester moved to target's server before accepting)
+                // Reject it to avoid complex remote-teleport orchestration
+                if (requester != null) {
+                    messageManager.send(requester, MessageKeys.ERROR_TELEPORT_FAILED);
+                }
+                messageSender.sendRequestCancel(request.getRequestId(), RequestCancelReason.TARGET_DISCONNECT, request.getTargetUuid());
+                return;
             }
         } else {
-            // Cross-server: create pending teleport, ask proxy to move traveler
+            // Cross-server teleport: ask proxy to move traveler to destServer
+            // But first, send pending teleport to destServer so they are expected
             PendingTeleport pending = new PendingTeleport(
                     travelerUuid, destPlayerUuid, destServer,
                     System.currentTimeMillis() + (long) config.getPendingTeleportTtl() * 1000
             );
             messageSender.sendPendingTeleport(pending);
 
-            // Mark as transferring to protect against cleanup logic (and memory leaks)
-            requestManager.markTransferring(travelerUuid, request.getRequestId());
+            // Mark as transferring on authoritative side if the traveler is here (TPA)
+            if (travelerServer.equals(config.getServerName())) {
+                requestManager.markTransferring(travelerUuid, request.getRequestId());
+                Player traveler = Bukkit.getPlayer(travelerUuid);
+                if (traveler != null) {
+                    messageManager.send(traveler, MessageKeys.TELEPORT_TELEPORTING,
+                            MessageManager.playerPlaceholder(request.getTargetName()));
+                }
+            }
 
             messageSender.sendConnectRequest(travelerUuid, destServer);
-
-            Player traveler = Bukkit.getPlayer(travelerUuid);
-            if (traveler != null) {
-                messageManager.send(traveler, MessageKeys.TELEPORT_TELEPORTING,
-                        MessageManager.playerPlaceholder(request.getTargetName()));
-            }
         }
 
         // Set cooldown async
