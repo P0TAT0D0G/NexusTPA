@@ -82,20 +82,22 @@ public class BackendMessageHandler implements PluginMessageListener {
     private void handleConnectResponse(ByteArrayDataInput in) {
         ChannelMessageUtil.ConnectResponseData resp = ChannelMessageUtil.readConnectResponse(in);
         UUID travelerUuid = resp.playerUuid();
-        boolean success = resp.success();
-        if (!success) {
-            Player player = Bukkit.getPlayer(travelerUuid);
-            if (player != null) {
-                messageManager.send(player, MessageKeys.ERROR_TELEPORT_FAILED);
+        if (!resp.success()) {
+            UUID requestId = requestManager.getTransferRequestId(travelerUuid);
+            TpaRequest request = null;
+            if (requestId != null) {
+                request = requestManager.getOutgoingByRequestId(requestId);
+                if (request == null) request = requestManager.getIncomingByRequestId(travelerUuid, requestId);
             }
-            // Clear transferring state and forcefully remove the stuck request
-            // since the transfer failed and they will never quit the server.
-            if (requestManager.isTransferring(travelerUuid)) {
-                UUID requestId = requestManager.getTransferRequestId(travelerUuid);
-                requestManager.clearTransferring(travelerUuid);
-                if (requestId != null) {
-                    requestManager.removeByRequestId(requestId);
+
+            if (request != null) {
+                failTransfer(request, RequestCancelReason.TARGET_DISCONNECT);
+            } else {
+                Player player = Bukkit.getPlayer(travelerUuid);
+                if (player != null) {
+                    messageManager.send(player, MessageKeys.ERROR_TELEPORT_FAILED);
                 }
+                requestManager.clearTransferring(travelerUuid);
             }
         }
     }
@@ -203,6 +205,33 @@ public class BackendMessageHandler implements PluginMessageListener {
         }
     }
 
+    private void failTransfer(TpaRequest request, RequestCancelReason reason) {
+        if (request == null) return;
+        requestManager.clearTransferring(request.getTravelerUuid());
+        requestManager.removeByRequestId(request.getRequestId());
+
+        // Notify traveler
+        Player traveler = Bukkit.getPlayer(request.getTravelerUuid());
+        if (traveler != null) {
+            messageManager.send(traveler, MessageKeys.ERROR_TELEPORT_FAILED);
+            if (request.isMirror()) {
+                messageSender.sendRequestCancel(request.getRequestId(), reason, request.getRequesterUuid());
+            }
+        } else {
+            UUID relayTarget = request.isMirror() ? request.getRequesterUuid() : request.getTargetUuid();
+            messageSender.sendRequestCancel(request.getRequestId(), reason, relayTarget);
+        }
+
+        // Notify requester if they are on this server and NOT the traveler (TPAHERE authoritative)
+        if (!request.isMirror() && request.getType() == RequestType.TPAHERE) {
+            Player requester = Bukkit.getPlayer(request.getRequesterUuid());
+            if (requester != null) {
+                messageManager.send(requester, MessageKeys.ERROR_TARGET_DISCONNECTED,
+                        MessageManager.playerPlaceholder(request.getTargetName()));
+            }
+        }
+    }
+
     /**
      * Final accept step — MAIN THREAD ONLY.
      * CAS PENDING→ACCEPTED, then teleport or cross-server handoff.
@@ -232,12 +261,7 @@ public class BackendMessageHandler implements PluginMessageListener {
 
         if (destServer == null || travelerServer == null) {
             plugin.getLogger().warning("finalizeAccept: roster cache miss. destServer=" + destServer + ", travelerServer=" + travelerServer);
-            if (requester != null) {
-                messageManager.send(requester, MessageKeys.ERROR_TARGET_DISCONNECTED,
-                        MessageManager.playerPlaceholder(request.getTargetName()));
-            }
-            // MUST send cancel relay to mirror so it clears transferring state!
-            messageSender.sendRequestCancel(request.getRequestId(), RequestCancelReason.TARGET_DISCONNECT, request.getTargetUuid());
+            failTransfer(request, RequestCancelReason.TARGET_DISCONNECT);
             return;
         }
 
@@ -253,33 +277,31 @@ public class BackendMessageHandler implements PluginMessageListener {
                     traveler.teleport(destPlayer.getLocation());
                     messageManager.send(traveler, MessageKeys.TELEPORT_TELEPORTING,
                             MessageManager.playerPlaceholder(destPlayer.getName()));
+                    // Clear mirror if it was originally cross-server
+                    messageSender.sendRequestCancel(request.getRequestId(), RequestCancelReason.ALREADY_RESOLVED, request.getTargetUuid());
+                } else {
+                    failTransfer(request, RequestCancelReason.TARGET_DISCONNECT);
                 }
             } else {
                 // Both are on a DIFFERENT server (e.g. requester moved to target's server before accepting)
-                // Reject it to avoid complex remote-teleport orchestration
-                if (requester != null) {
-                    messageManager.send(requester, MessageKeys.ERROR_TELEPORT_FAILED);
-                }
-                messageSender.sendRequestCancel(request.getRequestId(), RequestCancelReason.TARGET_DISCONNECT, request.getTargetUuid());
-                return;
+                failTransfer(request, RequestCancelReason.TARGET_DISCONNECT);
             }
+            return;
         } else {
             // Cross-server teleport: ask proxy to move traveler to destServer
-            // But first, send pending teleport to destServer so they are expected
             PendingTeleport pending = new PendingTeleport(
                     travelerUuid, destPlayerUuid, destServer,
                     System.currentTimeMillis() + (long) config.getPendingTeleportTtl() * 1000
             );
             messageSender.sendPendingTeleport(pending);
 
-            // Mark as transferring on authoritative side if the traveler is here (TPA)
-            if (travelerServer.equals(config.getServerName())) {
-                requestManager.markTransferring(travelerUuid, request.getRequestId());
-                Player traveler = Bukkit.getPlayer(travelerUuid);
-                if (traveler != null) {
-                    messageManager.send(traveler, MessageKeys.TELEPORT_TELEPORTING,
-                            MessageManager.playerPlaceholder(request.getTargetName()));
-                }
+            // Always mark as transferring to track CONNECT_RESPONSE and TTL on authoritative
+            requestManager.markTransferring(travelerUuid, request.getRequestId());
+
+            Player traveler = Bukkit.getPlayer(travelerUuid);
+            if (traveler != null) {
+                messageManager.send(traveler, MessageKeys.TELEPORT_TELEPORTING,
+                        MessageManager.playerPlaceholder(request.getTargetName()));
             }
 
             messageSender.sendConnectRequest(travelerUuid, destServer);

@@ -30,6 +30,7 @@ Desktop.ini
 # Server credentials and PRD (User requested)
 server-api-credentials.txt
 PRD.md
+upload_script.py
 
 # AI / Agent related (User requested)
 .agents/

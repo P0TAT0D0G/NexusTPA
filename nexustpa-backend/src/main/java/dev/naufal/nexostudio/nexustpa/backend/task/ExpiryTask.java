@@ -82,6 +82,18 @@ public class ExpiryTask extends BukkitRunnable {
         pendingTeleportManager.cleanupExpired();
 
         // Cleanup stale transfers (failed CONNECT_RESPONSE or network partition)
-        requestManager.cleanupStaleTransfers(config.getPendingTeleportTtl() + 15, plugin.getLogger(), messageManager);
+        List<TpaRequest> staleTransfers = requestManager.cleanupStaleTransfers(config.getPendingTeleportTtl() + 15, plugin.getLogger());
+        for (TpaRequest req : staleTransfers) {
+            Player traveler = Bukkit.getPlayer(req.getTravelerUuid());
+            if (traveler != null) {
+                messageManager.send(traveler, MessageKeys.ERROR_TELEPORT_FAILED);
+                if (req.isMirror()) {
+                    messageSender.sendRequestCancel(req.getRequestId(), RequestCancelReason.TARGET_DISCONNECT, req.getRequesterUuid());
+                }
+            } else {
+                java.util.UUID relayTarget = req.isMirror() ? req.getRequesterUuid() : req.getTargetUuid();
+                messageSender.sendRequestCancel(req.getRequestId(), RequestCancelReason.TARGET_DISCONNECT, relayTarget);
+            }
+        }
     }
 }
